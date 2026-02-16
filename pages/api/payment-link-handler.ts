@@ -1,11 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 
-// Problematic: This mutates global axios defaults
-function setSession(token: string) {
-  axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-}
-
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -22,21 +17,26 @@ export default async function handler(
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // PROBLEMATIC: Setting global axios defaults
-    // This can cause intermittent 401s when multiple requests are processed concurrently
-    setSession(sessionToken);
+    // FIXED: Create request-scoped config with auth headers
+    // This prevents concurrent requests from interfering with each other
+    const requestConfig = {
+      headers: {
+        'Authorization': `Bearer ${sessionToken}`,
+      },
+    };
 
-    // Make API call to payment provider
+    // Make API call to payment provider with per-request auth header
     const paymentResponse = await axios.post(
       'https://api.payment-provider.com/v1/payment-links',
       {
         amount,
         description,
         customer_email: customerEmail,
-      }
+      },
+      requestConfig
     );
 
-    // Make another API call to log the transaction
+    // Make another API call to log the transaction with per-request auth header
     const logResponse = await axios.post(
       'https://api.internal-service.com/v1/transaction-logs',
       {
@@ -44,7 +44,8 @@ export default async function handler(
         amount,
         customer_email: customerEmail,
         status: 'created',
-      }
+      },
+      requestConfig
     );
 
     return res.status(200).json({
